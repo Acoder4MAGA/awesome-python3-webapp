@@ -11,13 +11,23 @@ async def create_pool(loop,**kw):
 		port = kw.get('port',3306),
 		user = kw['user'],
 		password = kw['password'],
-		db = kw['db'],
-		charset = kw.get('charset','utf-8'),
+		db = kw['database'],
+		charset = kw.get('charset','utf8'),
 		autocommit = kw.get('autocommit',True),
 		maxsize = kw.get('maxsize',10),
 		minsize = kw.get('minsize',1),
 		loop = loop
 		)
+
+async def destory_pool():
+	global __pool
+	if __pool is not None:
+		try:
+			__pool.close()
+		except Exception as e:
+			raise
+	await __pool.wait_closed()
+
 
 async def select(sql,args,size=None):
 	log(sql,args)
@@ -180,7 +190,7 @@ class Model(dict,metaclass=ModelMetaclass):
 			else:
 				raise ValueError('Invalid limit value:%s' % str(limit))
 		rs = await select(' '.join(sql),args)
-		return [cls(**r) for r in rs]
+		return [cls(**r) for r in rs] #返回[User,User,...]
 
 	@classmethod
 	async def findNumber(cls,selectField,where=None,args=None):
