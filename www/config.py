@@ -41,11 +41,12 @@ def toDict(d):
 		D[k] = toDict(v) if isinstance(v,dict) else v
 	return D
 
-def getConfigs():
-	configs = config_default.configs
-	try:
-		import config_override
-		configs = merge(configs,config_override.configs)
-	except ImportError:
-		pass
-	return toDict(configs)
+configs = config_default.configs
+
+try:
+	import config_override
+	configs = merge(configs,config_override.configs)
+except ImportError:
+	pass
+
+configs = toDict(configs)
