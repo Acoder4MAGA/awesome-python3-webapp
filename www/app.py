@@ -80,6 +80,7 @@ async def response_factory(app,handler):
 			return resp
 		if isinstance(r,dict):
 			template = r.get('__template__')
+			r['__user__'] = request.__user__
 			if template is None:
 				#去IO编程/序列化这一章看json.dumps的介绍
 				resp = web.Response(body=json.dumps(r,ensure_ascii=False,default=lambda o:o.__dict__).encode('utf-8'))
