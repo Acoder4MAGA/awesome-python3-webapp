@@ -4,7 +4,7 @@ from coroweb import get,post
 from config import configs
 from aiohttp import web
 from models import User,Comment,Blog,next_id
-from apis import Page,APIError,APIValueError,APIPermissionError
+from apis import Page,APIError,APIValueError,APIPermissionError,APIResourceNotFountError
 
 COOKIE_NAME = 'awesession'
 _COOKIE_KEY = configs.session.secret
@@ -75,6 +75,26 @@ def index(request):
 		'__template__': 'blogs.html',
 		'blogs': blogs
 	}
+#进入注册页面
+@get('/register')
+def register():
+	return {
+		'__template__':'register.html'
+	}
+#进入登录页面
+@get('/signin')
+def signin():
+	return {
+		'__template__':'signin.html'
+	}
+#退出登录逻辑处理
+@get('/signout')
+def signout(request):
+	referer = request.headers.get('Referer')
+	r = web.HTTPFound(referer or '/')
+	r.set_cookie(COOKIE_NAME,'-deleted-',max_age=0,httponly=True)
+	logging.info('user signed out.')
+	return r
 #进入单个日志页面
 @get('/blog/{id}')
 async def get_blog(id):
@@ -118,43 +138,54 @@ def manage_create_blog(request):
 		'id': '',
 		'action': '/api/blogs'
 	}
-#进入注册页面
-@get('/register')
-def register():
+#进入相关ID进入日志编辑页
+@get('/manage/blogs/edit')
+def manage_edit_blog(*,id):
 	return {
-		'__template__':'register.html'
+		'__template__': 'manage_blog_edit.html',
+		'id': id,
+		'action': '/api/blogs/%s' % id
 	}
-#进入登录页面
-@get('/signin')
-def signin():
+#进用户管理页
+@get('/manage/users')
+def manage_users(*,page='1'):
 	return {
-		'__template__':'signin.html'
+		'__template__': 'manage_users.html',
+		'page_index': get_page_index(page)
 	}
-#退出登录逻辑处理
-@get('/signout')
-def signout(request):
-	referer = request.headers.get('Referer')
-	r = web.HTTPFound(referer or '/')
-	r.set_cookie(COOKIE_NAME,'-deleted-',max_age=0,httponly=True)
-	logging.info('user signed out.')
-	return r
 #获取所有User信息
 @get('/api/users')
-async def api_get_users():
-#async def api_get_users(*,page='1'): 分页
-	# page_index = get_page_index(page)
-	# num = await User.findNumber('count(id)')
-	# p = Page(num,page_index)
-	# if num == 0:
-	#     return dict(page=p,users=())
-	# users = await User.findAll(orderBy='created_at desc',limit=(p.offset,p.limit))
-	# for u in users:
-	#     u.passwd='******'
-	# return dict(page=p,users=users)
-	users = await User.findAll(orderBy='created_at desc')
+async def api_get_users(*,page='1'): 分页
+	page_index = get_page_index(page)
+	num = await User.findNumber('count(id)')
+	p = Page(num,page_index)
+	if num == 0:
+	    return dict(page=p,users=())
+	users = await User.findAll(orderBy='created_at desc',limit=(p.offset,p.limit))
 	for u in users:
-		u.passwd = '******'
-	return dict(users=users)
+	    u.passwd='******'
+	return dict(page=p,users=users)
+#进评论管理页
+@get('/manage')
+def manage():
+	return 'redirect:/manage/comments'
+#进评论首页
+@get('/manage/comments')
+def manage_comments(*,page='1'):
+	return {
+		'__template__': 'manage_comments.html',
+		'page_index': get_page_index(page)
+	}
+#返回所有评论
+@get('/api/comments')
+async def api_comments(*,page='1'):
+	page_index = get_page_index(page)
+	num = await Comment.findNumber('count(id)')
+	p = Page(num,page_index)
+	if num == 0:
+		return dict(page=p,comments=())
+	comments = await Comment.findAll(orderBy='created_at desc',limit=(p.offset,p.limit))
+	return dict(page=p,comments=comments)
 
 _RE_EMAIL = re.compile(r'^[a-z0-9\.\-\_]+\@[a-z0-9\-\_]+(\.[a-z0-9\-\_]+){1,4}$')
 _RE_SHA1 = re.compile(r'^[0-9a-f]{40}$')
@@ -219,3 +250,52 @@ async def api_create_blog(request,*,name,summary,content):
 	blog = Blog(user_id=request.__user__.id,user_name=request.__user__.name,user_image=request.__user__.image,name=name.strip(),summary=summary.strip(),content=content.strip())
 	await blog.save()
 	return blog
+#根据日志ID更新日志
+@post('/api/blogs/{id}')
+async def api_update_blog(id,request,*,name,summary,content):
+	check_admin(request)
+	blog = await Blog.find(id)
+	if not name or not name.strip():
+		raise APIValueError('name','name cannot be empty.')
+	if not summary or not summary.strip():
+		raise APIValueError('summary','summary cannot be empty.')
+	if not content or not content.strip():
+		raise APIValueError('content','content cannot be empty.')
+	blog.name = name.strip()
+	blog.summary = summary.strip()
+	blog.content = content.strip()
+	await blog.update()
+	return blog
+#根据日志ID删除日志
+@post('/api/blogs/{id}/delete')
+async def api_delete_blog(request,*,id):
+	check_admin(request)
+	blog = await Blog.find(id)
+	if blog is None:
+		raise APIResourceNotFountError('Blog')
+	await blog.remove()
+	return dict(id=id)
+#创建一条评论
+@post('/api/blogs/{id}/comments')
+async def api_create_comment(id,request,*,content):
+	user = request.__user__
+	if user is None:
+		raise APIPermissionError('Please signin first.')
+	if not content or not content.strip():
+		raise APIValueError('content')
+	blog = await Blog.find(id)
+	if blog is None:
+		raise APIResourceNotFountError('Comment')
+	comment = Comment(blog_id=blog.id,user_id=user.id,user_name=user.name,user_image=user.image,content=content.strip())
+	await comment.save()
+	return comment
+#删除一条评论
+@post('/api/comments/{id}/delete')
+async def api_delete_comment(id,request):
+	check_admin(request)
+	comment = await Comment.find(id)
+	if comment is None:
+		raise APIResourceNotFountError('Comment')
+	await comment.remove()
+	return dict(id=id)
+
