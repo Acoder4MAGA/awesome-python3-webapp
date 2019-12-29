@@ -4,7 +4,7 @@ from coroweb import get,post
 from config import configs
 from aiohttp import web
 from models import User,Comment,Blog,next_id
-from apis import Page,APIError,APIValueError,APIPermissionError,APIResourceNotFountError
+from apis import Page,APIError,APIValueError,APIPermissionError,APIResourceNotFoundError
 
 COOKIE_NAME = 'awesession'
 _COOKIE_KEY = configs.session.secret
@@ -64,15 +64,17 @@ async def cookie2user(cookie_str):
 		return None
 #进入主页
 @get('/')
-def index(request):
-	summary = 'Lorem ipsum dolor sit amet,consectetur adipisicing elit,sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.'
-	blogs = [
-		Blog(id='1',name='Test Blog',summary=summary,created_at=time.time()-120),
-		Blog(id='2',name='Something New',summary=summary,created_at=time.time()-3600),
-		Blog(id='3',name='Learn Swift',summary=summary,created_at=time.time()-7200)
-	]
+async def index(*,page='1'):
+	page_index = get_page_index(page)
+	num = await Blog.findNumber('count(id)')
+	page = Page(num)
+	if num == 0:
+		blogs = []
+	else:
+		blogs = await Blog.findAll(orderBy='created_at desc',limit=(page.offset,page.limit))
 	return {
 		'__template__': 'blogs.html',
+		'page': page,
 		'blogs': blogs
 	}
 #进入注册页面
@@ -155,7 +157,7 @@ def manage_users(*,page='1'):
 	}
 #获取所有User信息
 @get('/api/users')
-async def api_get_users(*,page='1'): 分页
+async def api_get_users(*,page='1'):
 	page_index = get_page_index(page)
 	num = await User.findNumber('count(id)')
 	p = Page(num,page_index)
@@ -168,7 +170,7 @@ async def api_get_users(*,page='1'): 分页
 #进评论管理页
 @get('/manage')
 def manage():
-	return 'redirect:/manage/comments'
+	return 'redirect:/manage/blogs'
 #进评论首页
 @get('/manage/comments')
 def manage_comments(*,page='1'):
@@ -252,7 +254,7 @@ async def api_create_blog(request,*,name,summary,content):
 	return blog
 #根据日志ID更新日志
 @post('/api/blogs/{id}')
-async def api_update_blog(id,request,*,name,summary,content):
+async def api_update_blog(id,request,*,name,summary,content,**kw):
 	check_admin(request)
 	blog = await Blog.find(id)
 	if not name or not name.strip():
@@ -298,4 +300,3 @@ async def api_delete_comment(id,request):
 		raise APIResourceNotFountError('Comment')
 	await comment.remove()
 	return dict(id=id)
-
